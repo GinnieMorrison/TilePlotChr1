@@ -1,0 +1,71 @@
+#For cluster
+library(data.table)
+library(GenomicRanges)
+
+##summarizeByTile from vsbuffalo
+
+summarizeByTile <-
+  # given a GRanges (or some sort of ranged data) object `x`, and a
+  # *corresponding* vector values to summarize `y` (these *must*
+  # correspond), calculate the summary per tile with the function `fun`.
+  # Note: this is still beta; wider tests coming, use with caution.
+  function(x, y, tiles, fun, mcol_name="y") {
+    stopifnot(length(x) == length(y))
+    
+    if (is(tiles, "GRangesList"))
+      tiles <- unlist(tiles)
+    
+    # find overlaps between ranges object x and tiles
+    hits <- findOverlaps(x, tiles)
+    message(sprintf("summarizeByTile: %d overlaps found between x (%d rows) and genome tiles (%d rows)",
+                    length(hits), length(x), length(tiles)))
+    
+    # split y by hits in tiles
+    split_y <- split(y[queryHits(hits)], subjectHits(hits))
+    
+    if (!is.null(mcol_name)) {
+      tile_summaries <- tiles[unique(subjectHits(hits))]
+      mcols(tile_summaries)[mcol_name] <- sapply(split_y, fun)
+      return(tile_summaries)
+    } else
+      sapply(split_y, fun)
+  }
+
+C50<-fread('GT_F2_chr1_M0_B13_C50_call.txt')
+#Read 292878764 rows and 4 (of 4) columns from 5.391 GB file in 00:01:28
+
+setnames(C50,c('chr','pos','qual','geno')) #nature of using names(x)<-c(x1,x2,x3)
+
+chr1_len<-c(chr1=C50$pos)
+#While vince initially was using tilewidth but I think that might have taken too much memory...
+#Try changing number of tiles
+tileK<-tileGenome(chr1_len,ntile=1000)
+tile10k<-tileGenome(chr1_len,ntile=10000)
+tile500<-tileGenome(chr1_len,ntile=500)
+
+snps<-GRanges("chr1",IRanges(chr1_len,width=1),genotype=C50$geno) #40000 seems to be the sweet spot...
+
+tile_hets_K<-summarizeByTile(snps, mcols(snps)$genotype, tileK, fun=function(x) sum("0/1" == x)/length(x))
+tile_hets_10K<-summarizeByTile(snps, mcols(snps)$genotype, tile10K, fun=function(x) sum("0/1" == x)/length(x))
+tile_hets_500<-summarizeByTile(snps, mcols(snps)$genotype, tile500, fun=function(x) sum("0/1" == x)/length(x))
+
+tile_rhom_K<-summarizeByTile(snps, mcols(snps)$genotype, tileK, fun=function(x) sum("0/0" == x)/length(x))
+tile_rhom_10K<-summarizeByTile(snps, mcols(snps)$genotype, tile10K, fun=function(x) sum("0/0" == x)/length(x))
+tile_rhom_500<-summarizeByTile(snps, mcols(snps)$genotype, tile500, fun=function(x) sum("0/0" == x)/length(x))
+
+tile_ahom_K<-summarizeByTile(snps, mcols(snps)$genotype, tileK, fun=function(x) sum("1/1" == x)/length(x))
+tile_ahom_10K<-summarizeByTile(snps, mcols(snps)$genotype, tile10K, fun=function(x) sum("1/1" == x)/length(x))
+tile_ahom_500<-summarizeByTile(snps, mcols(snps)$genotype, tile500, fun=function(x) sum("1/1" == x)/length(x))
+
+tile_prob1_K<-summarizeByTile(snps, mcols(snps)$genotype, tileK, fun=function(x) sum("1/2" == x)/length(x))
+tile_prob1_10K<-summarizeByTile(snps, mcols(snps)$genotype, tile10K, fun=function(x) sum("1/2" == x)/length(x))
+tile_prob1_500<-summarizeByTile(snps, mcols(snps)$genotype, tile500, fun=function(x) sum("1/2" == x)/length(x))
+
+tile_prob2_K<-summarizeByTile(snps, mcols(snps)$genotype, tileK, fun=function(x) sum("./." == x)/length(x))
+tile_prob2_10K<-summarizeByTile(snps, mcols(snps)$genotype, tile10K, fun=function(x) sum("./." == x)/length(x))
+tile_prob2_500<-summarizeByTile(snps, mcols(snps)$genotype, tile500, fun=function(x) sum("./." == x)/length(x))
+
+seqnames(rtile_hets)
+mcols(rtile_hets) ##contains the metadata--the proportion in this case
+ranges(rtile_hets)
+homoref_hets<-c(rtile_hets,rtile_homoref) #basically like doing an rbind on a data.frame...
